@@ -11,10 +11,6 @@ in Gitlab
     ```bash
     MRBV_BOT_UPVOTE=10
     ```
-    if you need take a merge without check pipline add
-    ```bash
-    MRBV_BOT_IGNORE_PIPELINE=true
-    ```
 3. add access for Bot to you project (or projects by groups)
 4. run bot!
     ```bash
