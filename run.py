@@ -1,4 +1,5 @@
 import copy
+import logging
 import os
 from urllib.parse import urlparse
 
@@ -130,6 +131,8 @@ async def health_check(request):
 
 app = Application()
 gl = gitlab.Gitlab(MRBV_URL, private_token=MRBV_TOKEN, api_version='4')
+logging.getLogger('apscheduler.scheduler').propagate = False
+logging.getLogger('apscheduler.scheduler').addHandler(logging.NullHandler())
 app.loop.run_until_complete(get_projects())
 app.loop.run_until_complete(get_variables())
 app.loop.run_until_complete(get_merges())
