@@ -19,8 +19,15 @@ try:
 except Exception as e:
     print(f"Error parse MRBV_URL: {e}")
 
+MRBV_REQUIRED_VOTE_IDS = os.getenv('MRBV_REQUIRED_VOTE_IDS', None)
+if MRBV_REQUIRED_VOTE_IDS is not None:
+    MRBV_REQUIRED_VOTE_IDS = [int(i) for i in os.getenv('MRBV_REQUIRED_VOTE_IDS', '').split(',')]
+else:
+    MRBV_REQUIRED_VOTE_IDS = []
+
 PROJECTS = []
 WITH_UPVOTE = []
+PROJECTS_REQUIRED_VOTE_IDS = {}
 MERGE_REQUESTS = []
 SUBSCRIBE = {}
 
@@ -34,7 +41,12 @@ async def get_projects():
 def check_project_upvote(project):
     try:
         MRBV_BOT_UPVOTE = project.variables.get('MRBV_BOT_UPVOTE')
-        return project, int(MRBV_BOT_UPVOTE.value)
+        try:
+            MRBV_REQUIRED_VOTE_IDS = [int(i) for i in project.variables.get('MRBV_REQUIRED_VOTE_IDS').value.split(',')]
+        except gitlab.GitlabGetError as e:
+            MRBV_REQUIRED_VOTE_IDS = []
+        print(MRBV_REQUIRED_VOTE_IDS)
+        return project, int(MRBV_BOT_UPVOTE.value), MRBV_REQUIRED_VOTE_IDS
     except Exception as e:
         pass
 
@@ -50,17 +62,31 @@ async def get_variables():
     print(f"found {len(WITH_UPVOTE)} MRBV_BOT_UPVOTE in {len(PROJECTS)} projects")
 
 
+def check_merge_by_award_emojis(merge):
+    for award_emoji in merge.awardemojis.list(all=True):
+        if award_emoji.name == 'thumbsup' and award_emoji.user['id'] in MRBV_REQUIRED_VOTE_IDS:
+            return True
+    return False
+
+
 def check_merge_upvote(data):
     global SUBSCRIBE
-    project, upvote = data
+    project, upvote, required_vote_ids = data
     try:
         mergerequests = []
         for i in project.mergerequests.list(state='opened', all=True):
             # coming soon
             # if i.id not in SUBSCRIBE.keys():
             #     SUBSCRIBE[i.id] = i
-            if int(i.upvotes) >= int(upvote) and int(
-                    i.downvotes) <= 0 and not i.work_in_progress and i.merge_status == 'can_be_merged':
+            if required_vote_ids:
+                check_merge = check_merge_by_award_emojis(i)
+            else:
+                check_merge = True
+            if int(i.upvotes) >= int(upvote) and \
+                    int(i.downvotes) <= 0 and \
+                    not i.work_in_progress and \
+                    i.merge_status == 'can_be_merged' and \
+                    check_merge:
                 mergerequests.append(i)
         return mergerequests
     except Exception as e:
@@ -128,6 +154,7 @@ async def health_check(request):
     for i in MERGE_REQUESTS:
         data[i.id] = {"title": i.title, "project_id": i.project_id}
     return request.Response(json=data, mime_type="application/json")
+
 
 app = Application()
 gl = gitlab.Gitlab(MRBV_URL, private_token=MRBV_TOKEN, api_version='4')
