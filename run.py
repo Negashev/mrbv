@@ -43,9 +43,9 @@ def check_project_upvote(project):
         MRBV_BOT_UPVOTE = project.variables.get('MRBV_BOT_UPVOTE')
         try:
             MRBV_REQUIRED_VOTE_IDS = [int(i) for i in project.variables.get('MRBV_REQUIRED_VOTE_IDS').value.split(',')]
+            print(f"'{project.name_with_namespace}' with {len(MRBV_REQUIRED_VOTE_IDS)} ids for required vote")
         except gitlab.GitlabGetError as e:
             MRBV_REQUIRED_VOTE_IDS = []
-        print(MRBV_REQUIRED_VOTE_IDS)
         return project, int(MRBV_BOT_UPVOTE.value), MRBV_REQUIRED_VOTE_IDS
     except Exception as e:
         pass
