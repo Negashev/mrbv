@@ -62,9 +62,9 @@ async def get_variables():
     print(f"found {len(WITH_UPVOTE)} MRBV_BOT_UPVOTE in {len(PROJECTS)} projects")
 
 
-def check_merge_by_award_emojis(merge):
+def check_merge_by_award_emojis(merge, required_vote_ids):
     for award_emoji in merge.awardemojis.list(all=True):
-        if award_emoji.name == 'thumbsup' and award_emoji.user['id'] in MRBV_REQUIRED_VOTE_IDS:
+        if award_emoji.name == 'thumbsup' and award_emoji.user['id'] in required_vote_ids:
             return True
     return False
 
@@ -79,7 +79,7 @@ def check_merge_upvote(data):
             # if i.id not in SUBSCRIBE.keys():
             #     SUBSCRIBE[i.id] = i
             if required_vote_ids:
-                check_merge = check_merge_by_award_emojis(i)
+                check_merge = check_merge_by_award_emojis(i, required_vote_ids)
             else:
                 check_merge = True
             if int(i.upvotes) >= int(upvote) and \
