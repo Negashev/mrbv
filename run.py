@@ -1,6 +1,7 @@
 import copy
 import logging
 import os
+from random import shuffle
 from urllib.parse import urlparse
 
 import gitlab
@@ -133,8 +134,11 @@ def accept(merge):
 async def try_close_merge():
     global MERGE_REQUESTS
     this_MERGE_REQUESTS = copy.copy(MERGE_REQUESTS)
-    with parallel_backend('threading'):
-        Parallel(n_jobs=4)(delayed(accept)(data) for data in this_MERGE_REQUESTS)
+    shuffle(this_MERGE_REQUESTS)
+    if not this_MERGE_REQUESTS:
+        return
+    # accept first merge
+    accept(this_MERGE_REQUESTS[0])
 
 
 async def connect_scheduler():
