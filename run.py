@@ -1,6 +1,8 @@
 import copy
 import logging
 import os
+import sys
+import time
 from random import shuffle
 from urllib.parse import urlparse
 
@@ -26,15 +28,29 @@ if MRBV_REQUIRED_VOTE_IDS is not None:
 else:
     MRBV_REQUIRED_VOTE_IDS = []
 
+MRBV_SECONDS_PROJECTS = int(os.getenv('MRBV_SECONDS_PROJECTS', 300))
+MRBV_SECONDS_VARIABLES = int(os.getenv('MRBV_SECONDS_VARIABLES', 120))
+MRBV_GET_SECONDS_MERGE = int(os.getenv('MRBV_GET_SECONDS_MERGE', 60))
+MRBV_SECONDS_SUBSCRIBE = int(os.getenv('MRBV_SECONDS_SUBSCRIBE', 60))
+MRBV_CLOSE_SECONDS_MERGE = int(os.getenv('MRBV_CLOSE_SECONDS_MERGE', 30))
+MAX_APPEND_TIME = max([MRBV_SECONDS_PROJECTS,
+                       MRBV_SECONDS_VARIABLES,
+                       MRBV_GET_SECONDS_MERGE,
+                       MRBV_SECONDS_SUBSCRIBE,
+                       MRBV_CLOSE_SECONDS_MERGE])
+
 PROJECTS = []
 WITH_UPVOTE = []
 PROJECTS_REQUIRED_VOTE_IDS = {}
 MERGE_REQUESTS = []
 SUBSCRIBE = {}
+UPTIME = {}
 
 
 async def get_projects():
     global PROJECTS
+    global UPTIME
+    UPTIME['MRBV_SECONDS_PROJECTS'] = time.time() + MRBV_SECONDS_PROJECTS
     PROJECTS = gl.projects.list(all=True)
     print(f"found {len(PROJECTS)} projects")
 
@@ -55,6 +71,8 @@ def check_project_upvote(project):
 async def get_variables():
     global PROJECTS
     global WITH_UPVOTE
+    global UPTIME
+    UPTIME['MRBV_SECONDS_VARIABLES'] = time.time() + MRBV_SECONDS_VARIABLES
     this_PROJECTS = copy.copy(PROJECTS)
     # issue https://github.com/scikit-learn/scikit-learn/issues/8920
     with parallel_backend('threading'):
@@ -98,6 +116,8 @@ async def get_merges():
     global WITH_UPVOTE
     global MERGE_REQUESTS
     global PROJECTS
+    global UPTIME
+    UPTIME['MRBV_GET_SECONDS_MERGE'] = time.time() + MRBV_GET_SECONDS_MERGE
     this_WITH_UPVOTE = copy.copy(WITH_UPVOTE)
     with parallel_backend('threading'):
         data = Parallel(n_jobs=4)(delayed(check_merge_upvote)(data) for data in this_WITH_UPVOTE)
@@ -111,6 +131,8 @@ async def get_merges():
 # coming soon
 async def subscribe():
     global SUBSCRIBE
+    global UPTIME
+    UPTIME['MRBV_SECONDS_SUBSCRIBE'] = time.time() + MRBV_SECONDS_SUBSCRIBE
     this_SUBSCRIBE = copy.copy(SUBSCRIBE)
     for i in this_SUBSCRIBE.keys():
         try:
@@ -133,6 +155,7 @@ def accept(merge):
 
 async def try_close_merge():
     global MERGE_REQUESTS
+    UPTIME['MRBV_CLOSE_SECONDS_MERGE'] = time.time() + MRBV_CLOSE_SECONDS_MERGE
     this_MERGE_REQUESTS = copy.copy(MERGE_REQUESTS)
     shuffle(this_MERGE_REQUESTS)
     if not this_MERGE_REQUESTS:
@@ -143,21 +166,27 @@ async def try_close_merge():
 
 async def connect_scheduler():
     scheduler = AsyncIOScheduler(timezone="UTC")
-    scheduler.add_job(get_projects, 'interval', seconds=int(os.getenv('MRBV_SECONDS_PROJECTS', 300)), max_instances=1)
-    scheduler.add_job(get_variables, 'interval', seconds=int(os.getenv('MRBV_SECONDS_VARIABLES', 120)), max_instances=1)
-    scheduler.add_job(get_merges, 'interval', seconds=int(os.getenv('MRBV_SECONDS_MERGE', 60)), max_instances=1)
-    # scheduler.add_job(subscribe, 'interval', seconds=int(os.getenv('MRBV_SECONDS_SUBSCRIBE', 60)), max_instances=1)
-    scheduler.add_job(try_close_merge, 'interval', seconds=int(os.getenv('MRBV_SECONDS_MERGE', 30)), max_instances=1)
+    scheduler.add_job(get_projects, 'interval', seconds=MRBV_SECONDS_PROJECTS, max_instances=1)
+    scheduler.add_job(get_variables, 'interval', seconds=MRBV_SECONDS_VARIABLES, max_instances=1)
+    scheduler.add_job(get_merges, 'interval', seconds=MRBV_GET_SECONDS_MERGE, max_instances=1)
+    # scheduler.add_job(subscribe, 'interval', seconds=MRBV_SECONDS_SUBSCRIBE, max_instances=1)
+    scheduler.add_job(try_close_merge, 'interval', seconds=MRBV_CLOSE_SECONDS_MERGE, max_instances=1)
 
     scheduler.start()
 
 
 async def health_check(request):
     global MERGE_REQUESTS
+    global UPTIME
     data = {}
     for i in MERGE_REQUESTS:
         data[i.id] = {"title": i.title, "project_id": i.project_id}
-    return request.Response(json=data, mime_type="application/json")
+    code = 200
+    for key in UPTIME.keys():
+        if UPTIME[key] <= time.time() - MAX_APPEND_TIME:
+            print(f"process freeze for {key}", file=sys.stderr)
+            code = 500
+    return request.Response(json=data, mime_type="application/json", code=code)
 
 
 app = Application()
@@ -172,4 +201,5 @@ app.loop.run_until_complete(try_close_merge())
 app.loop.run_until_complete(connect_scheduler())
 router = app.router
 router.add_route('/', health_check)
+router.add_route('/healthcheck', health_check)
 app.run(port=80)
